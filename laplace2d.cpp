@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <chrono>
 #include <iostream>
+#include <map>
 
 
 int main(int argc, const char** argv)
@@ -59,25 +60,23 @@ int main(int argc, const char** argv)
   while ( error > tol && iter < iter_max )
   {
     error = 0.0;
-#pragma omp parallel for reduction(max:error)
-    for( int j = 1; j < jmax+1; j++ )
-    {
-      for( int i = 1; i < imax+1; i++)
-      {
-        Anew[(j)*(imax+2)+i] = 0.25f * ( A[(j)*(imax+2)+i+1] + A[(j)*(imax+2)+i-1]
-            + A[(j-1)*(imax+2)+i] + A[(j+1)*(imax+2)+i]);
-        error = fmax( error, fabs(Anew[(j)*(imax+2)+i]-A[(j)*(imax+2)+i]));
+#pragma omp target teams distribute parallel for reduction(max:error) map(A[0:(imax+2)*(jmax+2)]) map(Anew[0:(imax+2)*(jmax+2)])
+      for( int i = 1; i < imax+1; i++ ) {
+        for( int j = 1; j < jmax+1; j++) {
+          Anew[j*(imax+2)+i] = 0.25f * (
+          A[(j+1) *(imax+2)+i] +
+          A[(j-1) *(imax+2)+i] +
+          A[j*(imax+2)+i-1] +
+          A[j*(imax+2)+i+1]);
+      error = fmax( error, fabs(Anew[(j)*(imax+2)+i]-A[(j)*(imax+2)+i]));
       }
     }
-#pragma omp parallel for
-    for( int j = 1; j < jmax+1; j++ )
-    {
-      for( int i = 1; i < imax+1; i++)
-      {
-        A[(j)*(imax+2)+i] = Anew[(j)*(imax+2)+i];
-      }
-    }
-    if(iter % 10 == 0) printf("%5d, %0.6f\n", iter, error);
+  #pragma omp target teams distribute parallel for map(A[0:(imax+2)*(jmax+2)]) map(Anew[0:(imax+2)*(jmax+2)])
+    for( int i = 1; i < imax+1; i++ )
+      for( int j = 1; j < jmax+1; j++)
+        A[j*(imax+2)+i] = Anew[j*(imax+2)+i];
+    if(iter % 10 == 0)
+    printf("%5d, %0.6f\n", iter, error);
     iter++;
   }
   auto t2 = std::chrono::high_resolution_clock::now();
@@ -91,7 +90,7 @@ int main(int argc, const char** argv)
     printf("This test is considered FAILED\n");
 
   std::chrono::duration<double, std::milli> ms_double = t2 - t1;
-  std::cout << ms_double.count() << "ms\n";
+  std::cout << ms_double.count() << " ms\n";
 
 
   return 0;
